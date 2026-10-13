@@ -5,6 +5,7 @@ from bridge.bridge_core import (
     Capability,
     DenyByDefaultAuthorityVerifier,
     DualControlPlane,
+    JobSpec,
     Mission,
 )
 
@@ -35,6 +36,17 @@ def mission(tags=("api",), max_risk="moderate", auth="test-authorized-record"):
         required_tags=tuple(tags),
         max_risk=max_risk,
         human_authorization_ref=auth,
+    )
+
+
+def job(job_id, tags=("api",), risk="moderate", depends_on=(), prompt=None):
+    return JobSpec(
+        job_id=job_id,
+        prompt=prompt or f"Perform the specifically scoped work for {job_id}. Do not perform unrelated work.",
+        required_tags=tuple(tags),
+        max_risk=risk,
+        acceptance_criteria=(f"Verify the defined output for {job_id}",),
+        depends_on=tuple(depends_on),
     )
 
 
@@ -75,6 +87,46 @@ class BridgeCoreTests(unittest.TestCase):
             [capability("z", "z-system"), capability("a", "a-system")],
         )
         self.assertEqual(plan.capability_ids, ("a", "z"))
+
+    def test_independent_jobs_are_grouped_for_parallel_execution(self):
+        result = self.bridge.plan_mission(
+            mission(),
+            [job("api"), job("docs")],
+            [capability("cap-api", tags=("api",)), capability("cap-docs", tags=("docs",))],
+        )
+        self.assertEqual(result.parallel_batches, (("api", "docs"),))
+        self.assertEqual([x.job_id for x in result.jobs], ["api", "docs"])
+        self.assertEqual(result.status, "PROPOSED_NOT_EXECUTABLE")
+
+    def test_dependent_jobs_are_separated_into_batches(self):
+        result = self.bridge.plan_mission(
+            mission(),
+            [job("design"), job("build", depends_on=("design",))],
+            [capability("cap-api", tags=("api",))],
+        )
+        self.assertEqual(result.parallel_batches, (("design",), ("build",)))
+
+    def test_duplicate_job_ids_halt(self):
+        with self.assertRaisesRegex(BridgeHalt, "duplicate job IDs"):
+            self.bridge.plan_mission(mission(), [job("same"), job("same")], [capability()])
+
+    def test_unknown_dependency_halts(self):
+        with self.assertRaisesRegex(BridgeHalt, "unknown dependencies"):
+            self.bridge.plan_mission(mission(), [job("build", depends_on=("missing",))], [capability()])
+
+    def test_dependency_cycle_halts(self):
+        with self.assertRaisesRegex(BridgeHalt, "dependency cycle"):
+            self.bridge.plan_mission(
+                mission(),
+                [job("a", depends_on=("b",)), job("b", depends_on=("a",))],
+                [capability()],
+            )
+
+    def test_job_prompt_and_acceptance_criteria_are_required(self):
+        with self.assertRaisesRegex(ValueError, "prompt-specific"):
+            JobSpec("bad", " ", ("api",), "low", ("output exists",))
+        with self.assertRaisesRegex(ValueError, "acceptance criteria"):
+            JobSpec("bad", "Do one bounded task", ("api",), "low", ())
 
 
 if __name__ == "__main__":
