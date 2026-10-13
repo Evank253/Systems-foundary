@@ -1,6 +1,6 @@
 import unittest
 
-from bridge_core import (
+from bridge.bridge_core import (
     BridgeHalt,
     Capability,
     DenyByDefaultAuthorityVerifier,
