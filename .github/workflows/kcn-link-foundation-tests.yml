@@ -1,0 +1,28 @@
+name: KCN Link Foundation Tests
+
+on:
+  push:
+    branches:
+      - kcn-link-foundation
+  pull_request:
+    branches:
+      - Python-3
+      - kcn-link-foundation
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run bridge regression tests
+        run: python -m unittest discover -s bridge/tests -v
+      - name: Run KCN Link evidence-ledger tests
+        run: python -m unittest discover -s kcn_link/tests -v
